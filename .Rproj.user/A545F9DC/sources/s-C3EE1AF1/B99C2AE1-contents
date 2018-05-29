@@ -1,0 +1,12 @@
+# - Read in CSV of places
+# - Plot on map
+# - Differentiate between places of interest vs food
+# - Indicate
+
+
+library(googleway)
+library(dplyr)
+library(leaflet)
+options(scipen=999)
+
+
