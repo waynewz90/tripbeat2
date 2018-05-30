@@ -1,9 +1,14 @@
-# - Read in CSV of places
-# - Plot on map, showing name and description
-# - Plot hotel on map
-# - Differentiate between places of interest vs food
-# - Indicate if priority
-
+# [DONE] - Read in CSV of places
+# [DONE] - Plot on map, showing name and description
+# [DONE] - Plot hotel on map
+# [DONE] - Differentiate between places of interest vs food
+# [DONE] - Indicate if priority
+# [DONE] - Should restrict to city, not just country
+# [DONE] - What if there are more than one branch - Should show all branches on map
+# [DONE] - Show address extracted from API, to verify
+# [DONE] - There seems to be an issue with "&"; should replace "&" with "and"
+# - Should flag if there are multiple locations
+# - Is there a way to flag if advanced reservations are required
 
 library(googleway)
 library(dplyr)
@@ -13,37 +18,62 @@ options(scipen=999)
 options(stringsAsFactors = FALSE)
 
 
+api_key <- readline(prompt="Paste API key: ") #REMOVE BEFORE MAKING PUBLIC
+set_key(api_key)
 
-city <- 'London' #Used in getting geocodes, and identifying relevant worksheet in Google Sheet
+#Used in getting geocodes
+#Used in identifying relevant worksheet in Google Sheet
+city <- 'London' 
+country <- 'GB' #GB, FR, ES
+components <- data.frame(component = c("locality", "administrative_area", "country"), value = c(city, city, country))
 
+# Application ---------------------------------
 gs_ls()
 ss <- gs_title("Europe Planning")
 gs_places <- gs_read(ss=ss, ws = city)
 places <- as.data.frame(gs_places)
 # places <- read.csv("places.csv", header=TRUE, stringsAsFactors = FALSE)
-places[is.na(places)] <- 0
-
-
-api_key = 'AIzaSyDaQaN_XfG1XiZ8IcEiex3ElHMa2SaNbDg' #REMOVE BEFORE MAKING PUBLIC
-set_key(api_key)
+places$food[is.na(places$food)] <- 0
+places$priority[is.na(places$priority)] <- 0
+places$hotel[is.na(places$hotel)] <- 0
+places$place <- gsub("&", "and", places$place)
 
 
 #Initialize empty dataframe
-geocodes = data.frame(matrix(vector(), 0, 3, dimnames=list(c(), c("place", "lat", "lon"))), stringsAsFactors=FALSE)
+geocodes = data.frame(matrix(vector(), 0, 4, dimnames=list(c(), c("place", "lat", "lon", "address"))), stringsAsFactors=FALSE)
 
 for(temp_place in places$place){
-  result <- google_geocode(address = c(paste(temp_place, city, sep = ", ")), simplify = TRUE)    
+  
+  result <- google_geocode(address = c(paste(temp_place, city, sep = ", ")), components = components, simplify = TRUE)  
+  print(paste("Extracting geocodes of: ", temp_place, " (" ,length(result$results$address_components), " locale)", sep=""))
+  
   if(result$status == 'OK'){
-    temp_lat <- result$results$geometry$location$lat[1]
-    temp_lon <- result$results$geometry$location$lng[1]
+    
+    #TESTING PURPOSES
+    # temp_place = "Portobello Market"
+    # result <- google_geocode(address = c(paste(temp_place, city, sep = ", ")), components = components, simplify = TRUE)  
+    # print(paste(temp_place, length(result$results$address_components)))
+    
+    for(i in seq_along(result$results$address_components)){
+      temp_lat <- result$results$geometry$location$lat[i]
+      temp_lon <- result$results$geometry$location$lng[i]
+      temp_address <- result$results$formatted_address[i]
+      
+      new_row <- list(place=temp_place, lat=temp_lat, lon=temp_lon, address=temp_address)
+      geocodes <- rbind (geocodes, new_row)
+    }
+    
   } else {
     print("Error in result")
     temp_lat <- NULL
     temp_lon <-NULL
+    temp_address <- NULL
+    
+    new_row <- list(place=temp_place, lat=temp_lat, lon=temp_lon, address=temp_address)
+    geocodes <- rbind (geocodes, new_row)
   }
   
-  new_row <- list(place=temp_place, lat=temp_lat, lon=temp_lon)
-  geocodes <- rbind (geocodes, new_row)
+
 }
 
 
@@ -56,7 +86,9 @@ geocodes2_food <- droplevels(filter(geocodes2, food == 1))
 geocodes2_attractions <- droplevels(filter(geocodes2, (food != 1) & (hotel != 1)))
 
 
-#-----------------------
+
+
+
 #Using color to differentiate between attraction/food, and symbol as priority
 
 getSymbol <- function(geocodes2) {
@@ -86,50 +118,13 @@ icons_hotel <- awesomeIcons(
 
 p <- leaflet() %>%
   addTiles() %>%  
-  addAwesomeMarkers(lng=geocodes2_attractions$lon, lat=geocodes2_attractions$lat, icon=icons_attractions, label=geocodes2_attractions$place) %>%
-  addAwesomeMarkers(lng=geocodes2_food$lon, lat=geocodes2_food$lat, icon=icons_food, label=geocodes2_food$place) %>%
-  addAwesomeMarkers(lng=geocodes2_hotel$lon, lat=geocodes2_hotel$lat, icon=icons_hotel, label=geocodes2_hotel$place)
+  addAwesomeMarkers(lng=geocodes2_attractions$lon, lat=geocodes2_attractions$lat, icon=icons_attractions, label=geocodes2_attractions$place, popup=geocodes2_attractions$comments) %>%
+  addAwesomeMarkers(lng=geocodes2_food$lon, lat=geocodes2_food$lat, icon=icons_food, label=geocodes2_food$place, popup=geocodes2_food$comments) %>%
+  addAwesomeMarkers(lng=geocodes2_hotel$lon, lat=geocodes2_hotel$lat, icon=icons_hotel, label=geocodes2_hotel$place, popup=geocodes2_hotel$comments)
 p  
 #Orange -> Food
 #Blue -> Attractions
 #Star -> Priority Food or Priority Attraction
-
-
-
-
-#-----------------------
-#Using icons to differentiate between attraction/food, and color as priority
-
-# getColor <- function(geocodes2) {
-#   sapply(geocodes2$priority, function(priority) {
-#     if(priority == 1) {
-#       "orange"
-#     }  else {
-#       "blue"
-#     }})
-# }
-# 
-# icons_attractions <- awesomeIcons(
-#   icon = 'bookmark',
-#   markerColor = getColor(geocodes2_attractions)
-# )
-# 
-# icons_food <- awesomeIcons(
-#   icon = 'glass',
-#   markerColor = getColor(geocodes2_food)
-# )
-# 
-# icons_hotel <- awesomeIcons(
-#   icon = 'home',
-#   markerColor = 'red'
-# )
-# 
-# p <- leaflet() %>%
-#   addTiles() %>%  
-#   addAwesomeMarkers(lng=geocodes2_attractions$lon, lat=geocodes2_attractions$lat, icon=icons_attractions, label=geocodes2_attractions$place) %>%
-#   addAwesomeMarkers(lng=geocodes2_food$lon, lat=geocodes2_food$lat, icon=icons_food, label=geocodes2_food$place) %>%
-#   addAwesomeMarkers(lng=geocodes2_hotel$lon, lat=geocodes2_hotel$lat, icon=icons_hotel, label=geocodes2_hotel$place)
-# p  
 
 
 
